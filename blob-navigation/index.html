@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Blob URL Navigation Tests</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    h1 { color: #333; }
+    h2 { color: #555; margin-top: 1.6em; }
+    h3 { margin: 0 0 6px; font-size: 1.05em; }
+    .test-section { background: #f5f5f5; border-radius: 8px; padding: 16px; margin: 14px 0; }
+    .test-description { color: #666; margin: 0 0 12px; }
+    button {
+      background: #3969EF; color: white; border: none; padding: 10px 18px;
+      border-radius: 8px; font-size: 15px; cursor: pointer; margin: 4px 4px 4px 0;
+    }
+    button:hover { background: #2b4fc7; }
+    button.secondary { background: #6c757d; }
+    .info-box { background: #e7f3ff; border-left: 4px solid #3969EF; padding: 15px; margin: 20px 0; }
+    .warn-box { background: #fff3cd; border-left: 4px solid #d39e00; padding: 15px; margin: 20px 0; }
+    iframe { border: 2px solid #ccc; border-radius: 4px; width: 100%; height: 180px; margin-top: 10px; }
+    code { background: #e9ecef; padding: 2px 6px; border-radius: 3px; font-family: "SF Mono", Monaco, monospace; }
+    table { border-collapse: collapse; width: 100%; margin-top: 10px; font-size: 14px; }
+    th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; vertical-align: top; }
+    th { background: #eee; }
+    .status { font-weight: bold; white-space: nowrap; }
+    .s-RENDERED { color: #155724; }
+    .s-PENDING { color: #856404; }
+    .s-NOREPORT { color: #721c24; }
+    .s-INFO { color: #0b5394; }
+    .group-label {
+      display: inline-block; font-size: 12px; text-transform: uppercase; letter-spacing: .04em;
+      background: #dfe4ea; color: #333; border-radius: 4px; padding: 2px 8px; margin-bottom: 8px;
+    }
+    /* Compact persistent bar. Capped in vh so it can never eat the viewport, and
+       only sticky when the viewport is tall relative to the user's font size —
+       min-height in rem means this backs off automatically at large text sizes. */
+    .toolbar {
+      background: #fff;
+      border-bottom: 1px solid #ddd;
+      padding: 8px 0;
+      margin-bottom: 8px;
+      max-height: 40vh;
+      overflow: auto;
+    }
+    @media (min-height: 34rem) {
+      .toolbar { position: sticky; top: 0; z-index: 10; }
+    }
+    .toolbar-row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+    .toolbar-row + .toolbar-row { margin-top: 6px; }
+    .summary { font-size: 14px; color: #444; }
+    .jump { font-size: 14px; }
+
+    /* Jump targets must clear the sticky bar. */
+    #tests, #results-panel { scroll-margin-top: 45vh; }
+
+    /* The table scrolls inside its own box instead of pushing the page around. */
+    .table-scroll { max-height: 60vh; overflow: auto; }
+    .table-scroll table { min-width: 32rem; }
+
+    /* Per-test status, so results are visible where you act. */
+    .badge {
+      display: inline-block; font-size: 12px; font-weight: bold;
+      border-radius: 4px; padding: 2px 8px; margin-left: 8px;
+      background: #e9ecef; color: #555; vertical-align: middle;
+    }
+    .badge.b-RENDERED { background: #d4edda; color: #155724; }
+    .badge.b-PENDING { background: #fff3cd; color: #856404; }
+    .badge.b-NOREPORT { background: #f8d7da; color: #721c24; }
+    .badge.b-INFO { background: #dae8f5; color: #0b5394; }
+
+    summary { cursor: pointer; font-weight: bold; margin: 1.2em 0 0; }
+  </style>
+</head>
+<body>
+  <h1>Blob URL Navigation Tests</h1>
+
+  <div class="info-box">
+    <strong>Purpose:</strong> verify that <code>blob:</code> URL navigations intended for in-page rendering
+    (not downloads) work correctly — payment/purchase flows, receipt pages, document viewers.
+    <br><br>
+    <strong>How results work:</strong> a blob document inherits the origin of the page that created it, so each
+    generated blob can report back through <code>localStorage</code> and <code>BroadcastChannel</code>. A test that
+    renders reports <code>RENDERED</code> by itself. A test that shows a blank page reports nothing and ends up as
+    <code>NO REPORT</code> — that is the failure signal.
+    <br><br>
+    <strong>Related iOS fix:</strong>
+    <a href="https://github.com/duckduckgo/ddg-workflow/pull/58" target="_blank">ddg-workflow PR #58</a>
+  </div>
+
+  <div class="warn-box">
+    <strong>Read before filing a pass:</strong> groups A and B should all reach <code>RENDERED</code>.
+    Group C is the opposite — those <em>must</em> download or preview and must <em>not</em> render as a blob page.
+    Group D is a manual checklist that catches side effects the automated table cannot see.
+  </div>
+
+  <div class="toolbar">
+    <div class="toolbar-row">
+      <span id="summary" class="summary">No results yet</span>
+      <a class="jump" href="#tests">Tests &darr;</a>
+      <a class="jump" href="#results-panel">Full results &darr;</a>
+    </div>
+    <div class="toolbar-row">
+      <label><input type="checkbox" id="auto-return" checked> Auto-return after a main-frame test renders</label>
+      <button class="secondary" id="clear-results">Clear</button>
+      <button class="secondary" id="log-results">Log to console</button>
+    </div>
+  </div>
+
+  <div id="tests"></div>
+
+  <details id="results-panel" open>
+    <summary>Full results table</summary>
+    <div class="table-scroll">
+      <table id="results">
+        <thead><tr><th>Test</th><th>Status</th><th>Detail</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </details>
+
+  <div class="test-section">
+    <span class="group-label">Group D — manual checks</span>
+    <h3>Side effects the table cannot see</h3>
+    <ul>
+      <li><strong>Downloads list:</strong> after running group A and B, open the browser's Downloads list. iOS routes
+        blob renders through <code>WKDownload</code> as a temporary download, so stray files appearing here is a bug
+        even when the page rendered.</li>
+      <li><strong>Privacy dashboard:</strong> while sitting on a rendered blob page, open the privacy dashboard. A blank
+        sheet reproduces the separate host-less-URL dashboard bug, independent of anything about downloads.</li>
+      <li><strong>Address bar:</strong> note what is shown on a blob page. The raw
+        <code>blob:https://…/&lt;uuid&gt;</code> string means no host could be derived.</li>
+      <li><strong>Protections toggle:</strong> on a blob page, try toggling protections off for the site. If the host is
+        <code>nil</code> the toggle cannot target a domain, so this is expected to be a no-op — confirm whether it fails
+        loudly or silently.</li>
+    </ul>
+  </div>
+
+  <script>
+    const CHANNEL = 'blobnav';
+    const RESULTS_KEY = 'blobnav.results';
+    const AUTORETURN_KEY = 'blobnav.autoReturn';
+    const ORIGIN = location.origin;
+    const TRACKER_SCRIPT = 'https://bad.third-party.site/privacy-protections/request-blocking/block-me/script.js';
+    const SAME_SITE_SCRIPT = ORIGIN + '/privacy-protections/request-blocking/block-me/script.js';
+    const FETCH_TARGET = ORIGIN + '/privacy-protections/request-blocking/block-me/fetch.json';
+    const RETURN_URL = location.href.split('?')[0].split('#')[0];
+
+    // ---------------------------------------------------------------------------
+    // Result storage. Blob documents write here too, via the injected reporter.
+    // ---------------------------------------------------------------------------
+    function readResults() {
+      try { return JSON.parse(localStorage.getItem(RESULTS_KEY)) || {}; } catch (e) { return {}; }
+    }
+
+    function saveResult(id, status, note, target) {
+      const all = readResults();
+      const prev = all[id] || {};
+      all[id] = { status, note: note || '', target: target || prev.target || '', ts: Date.now() };
+      try { localStorage.setItem(RESULTS_KEY, JSON.stringify(all)); } catch (e) { /* ignore */ }
+      renderResults();
+    }
+
+    function renderResults() {
+      const all = readResults();
+      const body = document.querySelector('#results tbody');
+      body.innerHTML = '';
+      const counts = { RENDERED: 0, PENDING: 0, 'NO REPORT': 0, INFO: 0 };
+
+      TESTS.forEach(function (t) {
+        const r = all[t.id];
+        const status = r ? r.status : '—';
+        if (counts[status] !== undefined) { counts[status] += 1; }
+
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td>' + t.id + ' · ' + t.title + '</td>' +
+          '<td class="status s-' + status.replace(/\s/g, '') + '">' + status + '</td>' +
+          '<td>' + (r ? r.note : '') + '</td>';
+        body.appendChild(tr);
+
+        const badge = document.querySelector('[data-badge="' + t.id + '"]');
+        if (badge) {
+          badge.textContent = status;
+          badge.className = 'badge b-' + status.replace(/\s/g, '');
+          badge.title = r ? r.note : '';
+        }
+      });
+
+      const done = counts.RENDERED + counts['NO REPORT'] + counts.INFO + counts.PENDING;
+      document.getElementById('summary').textContent = done === 0
+        ? 'No results yet'
+        : counts.RENDERED + ' rendered · ' + counts['NO REPORT'] + ' no report · ' +
+          counts.INFO + ' info · ' + counts.PENDING + ' pending';
+    }
+
+    // A main-frame test that left a PENDING row behind never rendered: we are back
+    // on this page, so the blob document had its chance and did not report.
+    function reapStalePending() {
+      const all = readResults();
+      let changed = false;
+      Object.keys(all).forEach(function (id) {
+        const r = all[id];
+        if (r.status === 'PENDING' && r.target === 'main') {
+          r.status = 'NO REPORT';
+          r.note = 'blob document never executed — blank page, download, or cancelled navigation';
+          changed = true;
+        }
+      });
+      if (changed) {
+        try { localStorage.setItem(RESULTS_KEY, JSON.stringify(all)); } catch (e) { /* ignore */ }
+      }
+    }
+
+    if ('BroadcastChannel' in window) {
+      const bc = new BroadcastChannel(CHANNEL);
+      bc.onmessage = function (ev) {
+        const d = ev.data || {};
+        if (d.id) { saveResult(d.id, d.status || 'RENDERED', d.note, d.target); }
+      };
+    }
+
+    // ---------------------------------------------------------------------------
+    // Blob document builder. Every generated document self-reports, because inert
+    // blobs are already known to pass and are not what real sites ship.
+    // ---------------------------------------------------------------------------
+    function reporterSource(id, canReturn) {
+      // Built by concatenation, not a template literal, to keep escaping obvious.
+      return '(function(){' +
+        'var id=' + JSON.stringify(id) + ';' +
+        'function rep(status,note){' +
+          'try{var k=' + JSON.stringify(RESULTS_KEY) + ';' +
+          'var all=JSON.parse(localStorage.getItem(k)||"{}");' +
+          'all[id]={status:status,note:note||"",target:"",ts:Date.now()};' +
+          'localStorage.setItem(k,JSON.stringify(all));}catch(e){}' +
+          'try{new BroadcastChannel(' + JSON.stringify(CHANNEL) + ').postMessage(' +
+            '{id:id,status:status,note:note||""});}catch(e){}' +
+        '}' +
+        'window.__report=rep;' +
+        'rep("RENDERED","blob document parsed and ran script");' +
+        (canReturn
+          ? 'try{if(localStorage.getItem(' + JSON.stringify(AUTORETURN_KEY) + ')==="1"){' +
+            'setTimeout(function(){history.back();},1200);}}catch(e){}'
+          : '') +
+      '})();';
+    }
+
+    function blobDoc(opts) {
+      const id = opts.id;
+      const canReturn = opts.target === 'main';
+      const extraHead = opts.head || '';
+      const extraBody = opts.body || '';
+      const extraScript = opts.script || '';
+      // "<\/script>" keeps the HTML parser from ending this inline script early.
+      return '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+        '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+        '<title>' + id + '</title>' +
+        '<style>body{font-family:-apple-system,sans-serif;max-width:560px;margin:40px auto;padding:20px;' +
+        'text-align:center}.ok{background:#d4edda;color:#155724;border-radius:12px;padding:24px}' +
+        '.tick{font-size:56px}a,button{color:#3969EF;font-size:16px}</style>' + extraHead +
+        '</head><body>' +
+        '<div class="ok"><div class="tick">&#10003;</div>' +
+        '<h1>' + id + ' rendered</h1>' +
+        '<p>' + (opts.message || 'This blob document rendered and executed script.') + '</p>' +
+        '<p id="probe"></p></div>' +
+        extraBody +
+        (canReturn
+          ? '<p><a href="' + RETURN_URL + '">&larr; Back to results</a></p>'
+          : '<p><button onclick="window.close()">Close</button></p>') +
+        '<script>' + reporterSource(id, canReturn) + '<\/script>' +
+        (extraScript ? '<script>' + extraScript + '<\/script>' : '') +
+        '</body></html>';
+    }
+
+    function makeBlobURL(content, mimeType) {
+      return URL.createObjectURL(new Blob([content], { type: mimeType || 'text/html' }));
+    }
+
+    function openInNewTab(url, features) {
+      return features ? window.open(url, '_blank', features) : window.open(url, '_blank');
+    }
+
+    function renderInIframe(url, host) {
+      host.innerHTML = '';
+      const iframe = document.createElement('iframe');
+      iframe.src = url;
+      host.appendChild(iframe);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Test table
+    // ---------------------------------------------------------------------------
+    const TESTS = [
+      // ---- Group A: patterns that stress the intercept-and-replay path ---------
+      {
+        id: 'A1', group: 'A — navigation patterns', target: 'main',
+        title: 'location.href (baseline)',
+        desc: 'Plain main-frame assignment. Known to pass; kept as the control.',
+        run: function (t) { location.href = makeBlobURL(blobDoc(t)); }
+      },
+      {
+        id: 'A2', group: 'A — navigation patterns', target: 'main',
+        title: 'location.replace',
+        desc: 'Replaces the history entry instead of pushing one. The iOS replay re-drives the load via ' +
+              'window.location.href, which pushes an entry — so history depth may differ from Safari.',
+        run: function (t) { location.replace(makeBlobURL(blobDoc(t))); }
+      },
+      {
+        id: 'A3', group: 'A — navigation patterns', target: 'main',
+        title: 'revoke immediately after navigating',
+        desc: 'Revokes the object URL synchronously after assigning location. This is the single most common ' +
+              'real-world pattern and the one an intercept-then-replay design cannot survive.',
+        run: function (t) {
+          const url = makeBlobURL(blobDoc(t));
+          location.href = url;
+          URL.revokeObjectURL(url);
+        }
+      },
+      {
+        id: 'A4', group: 'A — navigation patterns', target: 'main',
+        title: 'revoke 250 ms after navigating',
+        desc: 'Races the revoke against the download-then-replay round trip rather than losing outright.',
+        run: function (t) {
+          const url = makeBlobURL(blobDoc(t));
+          location.href = url;
+          setTimeout(function () { URL.revokeObjectURL(url); }, 250);
+        }
+      },
+      {
+        id: 'A5', group: 'A — navigation patterns', target: 'window',
+        title: 'anchor with target="_blank"',
+        desc: 'Link-activated navigation to a new tab. targetFrame is nil for new-window navigations, so the ' +
+              'frame the replay script would target does not exist.',
+        run: function (t) {
+          const a = document.createElement('a');
+          a.href = makeBlobURL(blobDoc(t));
+          a.target = '_blank';
+          a.rel = 'opener';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        }
+      },
+      {
+        id: 'A6', group: 'A — navigation patterns', target: 'window',
+        title: 'window.open("") then assign location',
+        desc: 'Opens a blank tab first and navigates it from the opener. Extremely common in payment SDKs ' +
+              'because it survives popup blockers.',
+        run: function (t) {
+          const w = openInNewTab('');
+          if (!w) { return saveResult(t.id, 'NO REPORT', 'popup blocked — allow popups and retry', t.target); }
+          w.location.href = makeBlobURL(blobDoc(t));
+        }
+      },
+      {
+        id: 'A7', group: 'A — navigation patterns', target: 'window',
+        title: 'window.open with noopener',
+        desc: 'The new context gets no opener, so it cannot inherit the creator relationship. Tests whether the ' +
+              'blob still resolves from its origin-keyed registry.',
+        run: function (t) {
+          const w = openInNewTab(makeBlobURL(blobDoc(t)), 'noopener');
+          if (!w) { saveResult(t.id, 'PENDING', 'noopener returns null by design — watch the new tab', t.target); }
+        }
+      },
+      {
+        id: 'A8', group: 'A — navigation patterns', target: 'main',
+        title: 'large blob (~4 MB)',
+        desc: 'A slow download makes the replay race observable instead of hiding it behind a fast local read.',
+        run: function (t) {
+          const filler = '<p>padding padding padding padding padding padding</p>';
+          location.href = makeBlobURL(blobDoc({
+            id: t.id, target: 'main',
+            message: 'Large blob rendered.',
+            body: filler.repeat(80000)
+          }));
+        }
+      },
+      {
+        id: 'A9', group: 'A — navigation patterns', target: 'main',
+        title: 'same blob URL navigated twice',
+        desc: 'Navigates, returns, then navigates to the identical URL again. The download bookkeeping matches on ' +
+              'URL equality, so a stale entry can make the second attempt behave differently from the first.',
+        run: function (t) {
+          const stored = sessionStorage.getItem('blobnav.A9url');
+          if (stored) {
+            sessionStorage.removeItem('blobnav.A9url');
+            location.href = stored;
+            return;
+          }
+          const url = makeBlobURL(blobDoc(t));
+          sessionStorage.setItem('blobnav.A9url', url);
+          location.href = url;
+        }
+      },
+      {
+        id: 'A10', group: 'A — navigation patterns', target: 'main',
+        title: 'back then forward into a blob entry',
+        desc: 'Renders a blob, returns here, then asks you to press Forward. A back/forward navigation re-enters ' +
+              'the blob entry long after the blob may have been released.',
+        run: function (t) { location.href = makeBlobURL(blobDoc(t)); },
+        after: 'Now press the browser Forward button. The blob page should render again.'
+      },
+
+      // ---- Group B: blob documents that actually do something -----------------
+      {
+        id: 'B1', group: 'B — non-inert blob documents', target: 'main',
+        title: 'inline script mutates the DOM',
+        desc: 'Confirms script execution inside the blob document, not just parsing.',
+        run: function (t) {
+          location.href = makeBlobURL(blobDoc({
+            id: t.id, target: 'main',
+            script: 'document.getElementById("probe").textContent="inline script ran";'
+          }));
+        }
+      },
+      {
+        id: 'B2', group: 'B — non-inert blob documents', target: 'main',
+        title: 'loads a first-party external script',
+        desc: 'A blob document has an opaque path, so relative URLs are unusable. This uses an absolute same-origin ' +
+              'URL, which is what real sites do.',
+        run: function (t) {
+          location.href = makeBlobURL(blobDoc({
+            id: t.id, target: 'main',
+            message: 'Waiting for a first-party script to load…',
+            script: 'window.scriptLoadedCallback=function(){' +
+                    'document.getElementById("probe").textContent="first-party script loaded";' +
+                    'window.__report("RENDERED","first-party subresource loaded inside blob document");};' +
+                    'var s=document.createElement("script");s.src=' + JSON.stringify(SAME_SITE_SCRIPT) + ';' +
+                    's.onerror=function(){window.__report("NO REPORT","first-party subresource BLOCKED or failed");};' +
+                    'document.head.appendChild(s);'
+          }));
+        }
+      },
+      {
+        id: 'B3', group: 'B — non-inert blob documents', target: 'main',
+        title: 'loads a tracker script (allowlist scoping)',
+        desc: 'The key privacy-side test. Allowlist rules compile to if-domain "*example.com" and are matched against ' +
+              'the top document. A blob document has no host, so domain-scoped exceptions may silently stop applying ' +
+              'while block rules still fire. Compare the outcome here against the same request on a normal page.',
+        run: function (t) {
+          location.href = makeBlobURL(blobDoc({
+            id: t.id, target: 'main',
+            message: 'Requesting a known tracker script from inside a blob document…',
+            script: 'window.scriptLoadedCallback=function(){' +
+                    'window.__report("INFO","tracker script LOADED inside blob document (not blocked)");};' +
+                    'var s=document.createElement("script");s.src=' + JSON.stringify(TRACKER_SCRIPT) + ';' +
+                    's.onerror=function(){window.__report("INFO","tracker script BLOCKED inside blob document");};' +
+                    'document.head.appendChild(s);'
+          }));
+        },
+        after: 'Either outcome is informative. What matters is whether it matches the behaviour of the same request ' +
+               'on a normal https page with the same protections settings.'
+      },
+      {
+        id: 'B4', group: 'B — non-inert blob documents', target: 'main',
+        title: 'fetch() from inside the blob document',
+        desc: 'Checks that a host-less document can still issue credentialed same-origin requests.',
+        run: function (t) {
+          location.href = makeBlobURL(blobDoc({
+            id: t.id, target: 'main',
+            script: 'fetch(' + JSON.stringify(FETCH_TARGET) + ',{credentials:"include"})' +
+                    '.then(function(r){window.__report("RENDERED","fetch from blob document returned "+r.status);})' +
+                    '.catch(function(e){window.__report("NO REPORT","fetch from blob document failed: "+e);});'
+          }));
+        }
+      },
+      {
+        id: 'B5', group: 'B — non-inert blob documents', target: 'main',
+        title: 'auto-submitting form navigates onward',
+        desc: 'Mirrors the real receipt/gateway pattern: the blob page immediately navigates the top frame to an ' +
+              'http(s) URL. Submits back to this page so the hand-off is self-verifying.',
+        run: function (t) {
+          location.href = makeBlobURL(blobDoc({
+            id: t.id, target: 'main',
+            message: 'Submitting a form from the blob document…',
+            body: '<form id="f" method="GET" action="' + RETURN_URL + '">' +
+                  '<input type="hidden" name="handoff" value="B5"></form>',
+            script: 'setTimeout(function(){document.getElementById("f").submit();},600);'
+          }));
+        }
+      },
+      {
+        id: 'B6', group: 'B — non-inert blob documents', target: 'main',
+        title: 'script-driven onward navigation',
+        desc: 'Same hand-off as B5 but via location.href, which takes a different WebKit path than form submission.',
+        run: function (t) {
+          location.href = makeBlobURL(blobDoc({
+            id: t.id, target: 'main',
+            message: 'Navigating onward from the blob document…',
+            script: 'setTimeout(function(){location.href=' +
+                    JSON.stringify(RETURN_URL + '?handoff=B6') + ';},600);'
+          }));
+        }
+      },
+      {
+        id: 'B7', group: 'B — non-inert blob documents', target: 'main',
+        title: 'nested blob (blob creates a blob)',
+        desc: 'The blob document creates and navigates to a second blob. The second blob is owned by a document that ' +
+              'itself has no host.',
+        run: function (t) {
+          const inner = blobDoc({ id: 'B7-inner', target: 'main', message: 'Nested blob rendered.' });
+          location.href = makeBlobURL(blobDoc({
+            id: t.id, target: 'main',
+            message: 'Creating a nested blob…',
+            script: 'var inner=' + JSON.stringify(inner) + ';' +
+                    'setTimeout(function(){location.href=URL.createObjectURL(' +
+                    'new Blob([inner],{type:"text/html"}));},600);'
+          }));
+        }
+      },
+      {
+        id: 'B8', group: 'B — non-inert blob documents', target: 'iframe',
+        title: 'iframe blob with a tracker subresource',
+        desc: 'Same allowlist-scoping question as B3, but where the blob is a subframe of a normal https page.',
+        run: function (t, host) {
+          renderInIframe(makeBlobURL(blobDoc({
+            id: t.id, target: 'iframe',
+            script: 'window.scriptLoadedCallback=function(){' +
+                    'window.__report("INFO","tracker script LOADED in blob iframe");};' +
+                    'var s=document.createElement("script");s.src=' + JSON.stringify(TRACKER_SCRIPT) + ';' +
+                    's.onerror=function(){window.__report("INFO","tracker script BLOCKED in blob iframe");};' +
+                    'document.head.appendChild(s);'
+          })), host);
+        }
+      },
+
+      // ---- Group C: negative controls — these must NOT render ----------------
+      {
+        id: 'C1', group: 'C — negative controls', target: 'download',
+        title: 'anchor with download attribute',
+        desc: 'MUST download. If a fix makes this render instead, blob downloads have regressed.',
+        run: function (t) {
+          const a = document.createElement('a');
+          a.href = makeBlobURL('id,value\nC1,download-ok\n', 'text/csv');
+          a.download = 'blobnav-C1.csv';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          saveResult(t.id, 'INFO', 'expect a download prompt / Downloads entry, never a rendered page', t.target);
+        }
+      },
+      {
+        id: 'C2', group: 'C — negative controls', target: 'download',
+        title: 'application/octet-stream main-frame nav',
+        desc: 'MUST download. An undisplayable MIME type that is blanket-allowed renders as a blank page — the ' +
+              'regression risk in gating only on download intent.',
+        run: function (t) {
+          saveResult(t.id, 'INFO', 'expect a download prompt, never a blank rendered page', t.target);
+          location.href = makeBlobURL('binary-ish payload for C2', 'application/octet-stream');
+        }
+      },
+      {
+        id: 'C3', group: 'C — negative controls', target: 'download',
+        title: 'empty MIME type main-frame nav',
+        desc: 'MUST download or prompt. Must not hang or blank.',
+        run: function (t) {
+          saveResult(t.id, 'INFO', 'expect a download prompt or a graceful error, never a hang', t.target);
+          location.href = makeBlobURL('payload with no declared type', '');
+        }
+      },
+      {
+        id: 'C4', group: 'C — negative controls', target: 'download',
+        title: 'application/pdf main-frame nav',
+        desc: 'Should preview in the PDF viewer, or download. A blank tab with no download is the failure.',
+        run: function (t) {
+          const pdf = '%PDF-1.4\n' +
+            '1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n' +
+            '2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n' +
+            '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 200]/Contents 4 0 R' +
+            '/Resources<</Font<</F1 5 0 R>>>>>>endobj\n' +
+            '4 0 obj<</Length 44>>stream\nBT /F1 18 Tf 20 100 Td (Blob PDF OK) Tj ET\nendstream endobj\n' +
+            '5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n' +
+            'trailer<</Root 1 0 R>>\n';
+          saveResult(t.id, 'INFO', 'expect the PDF viewer or a download, never a blank tab', t.target);
+          location.href = makeBlobURL(pdf, 'application/pdf');
+        }
+      }
+    ];
+
+    // ---------------------------------------------------------------------------
+    // Wiring
+    // ---------------------------------------------------------------------------
+    function buildUI() {
+      const host = document.getElementById('tests');
+      let currentGroup = null;
+      TESTS.forEach(function (t) {
+        const section = document.createElement('div');
+        section.className = 'test-section';
+        let html = '';
+        if (t.group !== currentGroup) {
+          currentGroup = t.group;
+          html += '<span class="group-label">' + t.group + '</span>';
+        }
+        html += '<h3>' + t.id + ' — ' + t.title +
+                '<span class="badge" data-badge="' + t.id + '">—</span></h3>' +
+                '<p class="test-description">' + t.desc + '</p>';
+        section.innerHTML = html;
+
+        const btn = document.createElement('button');
+        btn.textContent = 'Run ' + t.id;
+        btn.addEventListener('click', function () {
+          const frameHost = section.querySelector('.iframe-host');
+          if (t.target === 'main' || t.target === 'window' || t.target === 'iframe') {
+            saveResult(t.id, 'PENDING', 'waiting for the blob document to report', t.target);
+          }
+          if (t.after) {
+            const note = document.createElement('p');
+            note.className = 'test-description';
+            note.textContent = t.after;
+            section.appendChild(note);
+          }
+          t.run(t, frameHost);
+          if (t.target === 'window' || t.target === 'iframe') {
+            setTimeout(function () {
+              const r = readResults()[t.id];
+              if (r && r.status === 'PENDING') {
+                saveResult(t.id, 'NO REPORT', 'no report after 5s — blank page, download, or blocked', t.target);
+              }
+            }, 5000);
+          }
+        });
+        section.appendChild(btn);
+
+        if (t.target === 'iframe') {
+          const frameHost = document.createElement('div');
+          frameHost.className = 'iframe-host';
+          section.appendChild(frameHost);
+        }
+        host.appendChild(section);
+      });
+    }
+
+    const autoReturn = document.getElementById('auto-return');
+    autoReturn.checked = localStorage.getItem(AUTORETURN_KEY) !== '0';
+    localStorage.setItem(AUTORETURN_KEY, autoReturn.checked ? '1' : '0');
+    autoReturn.addEventListener('change', function () {
+      localStorage.setItem(AUTORETURN_KEY, autoReturn.checked ? '1' : '0');
+    });
+
+    document.getElementById('clear-results').addEventListener('click', function () {
+      localStorage.removeItem(RESULTS_KEY);
+      renderResults();
+    });
+
+    // Record hand-offs from B5 / B6 before anything reaps their PENDING rows.
+    const handoff = new URLSearchParams(location.search).get('handoff');
+    if (handoff) {
+      saveResult(handoff, 'RENDERED', 'blob document navigated the top frame back to an https page', 'main');
+      history.replaceState(null, '', RETURN_URL);
+    }
+
+    buildUI();
+    reapStalePending();
+    renderResults();
+  </script>
+</body>
+</html>
