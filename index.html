@@ -4,12 +4,42 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Test pages for web features</title>
+  <style>
+    body {
+      font: 18px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+      max-width: 576px;
+      max-width: 36rem;
+      margin: 0 auto;
+      padding: 48px 24px;
+      background: #fbfaf8;
+      color: #1c1b19;
+    }
+    h1 { font-weight: 400; margin: 0 0 32px; }
+    ul { list-style: none; margin: 0; padding: 0; }
+    li a { display: block; padding: 12px 8px; color: #0b3d91; }
+    li a:hover { background: #eaeef7; }
+    li a:focus { outline: 3px solid #0b3d91; outline-offset: 2px; }
+    hr { border: 0; border-top: 1px solid #949089; margin: 40px 0; }
+    figure { margin: 0; }
+    figcaption { font-size: 14px; color: #4a4844; margin-top: 8px; }
+
+    @media (prefers-color-scheme: dark) {
+      body { background: #121417; color: #f2f0ec; }
+      li a { color: #9dbcf5; }
+      li a:hover { background: #1d2129; }
+      li a:focus { outline-color: #9dbcf5; }
+      hr { border-top-color: #6f6b64; }
+      figcaption { color: #c9c6c0; }
+    }
+  </style>
 </head>
 <body>
-  <ul>
+  <h1>Test pages for web features</h1>
+  
+  <ul role="list">
     <li><a href="./app-clips/">App Clip Tests</a></li>
     <li><a href="./blob-navigation/">Blob URL Navigation Tests</a></li>
-    <li><a href="./blob-navigation/non-retryable.htmlw">Blob Navigation — Non-retryable Tests</a></li>
+    <li><a href="./blob-navigation/non-retryable.html">Blob Navigation — Non-retryable Tests</a></li>
   </ul>
   
   <hr>
