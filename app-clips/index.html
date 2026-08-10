@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- TEST A: plain Smart App Banner. app-id only, no clip params.
+     Needs no apple-app-site-association file, so it works from any host. -->
+<meta name="apple-itunes-app" content="app-id=6471775266">
+<title>App Clips testcase</title>
+<style>
+  body { font: 16px/1.5 -apple-system, system-ui, sans-serif; margin: 0; padding: 24px; max-width: 640px; }
+  h1 { font-size: 24px; margin: 0 0 24px; }
+  section { border-top: 1px solid #ccc; padding: 16px 0; }
+  h2 { font-size: 18px; margin: 0 0 8px; }
+  p { margin: 0 0 8px; }
+  a { display: inline-block; padding: 8px 16px; background: #eee; border-radius: 8px; text-decoration: none; }
+  code { background: #eee; padding: 0 4px; border-radius: 4px; }
+  .pass::before { content: "PASS: "; font-weight: bold; }
+  .fail::before { content: "FAIL: "; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<h1>App Clips testcase</h1>
+<p>Run every test in Safari first, then in DuckDuckGo. Serve this page over HTTPS, otherwise Test D is not valid.</p>
+
+<section>
+  <h2>A. Smart App Banner</h2>
+  <p>Nothing to tap. Look at the top of the page.</p>
+  <p class="pass">A banner strip offers to open or install the app.</p>
+  <p class="fail">No banner.</p>
+</section>
+
+<section>
+  <h2>B. App Clip card</h2>
+  <p>Do this with the AirKey app NOT installed, before Test D.</p>
+  <p><a href="https://airkey.capitalone.com/">Load airkey.capitalone.com</a></p>
+  <p class="pass">An App Clip card appears offering to open AirKey.</p>
+  <p class="fail">The page loads with no card, or sits blank.</p>
+</section>
+
+<section>
+  <h2>C. App Clip default link</h2>
+  <p>Tests the fix proposed on the task: open the clip URL natively.</p>
+  <p><a href="https://appclip.apple.com/id?p=com.capitalone.AirKeyApp.clip">Open the App Clip directly</a></p>
+  <p class="pass">The App Clip card appears, or the App Clip launches.</p>
+  <p class="fail">An Apple web page loads, or nothing happens.</p>
+</section>
+
+<section>
+  <h2>D. Universal link</h2>
+  <p>Install the AirKey app first, then use the same link as Test B.</p>
+  <p><a href="https://airkey.capitalone.com/">Load airkey.capitalone.com</a></p>
+  <p class="pass">The AirKey app opens.</p>
+  <p class="fail">The page loads inside the browser.</p>
+</section>
+
+<section>
+  <h2>E. Can a script read the tag?</h2>
+  <p>Tests the detection half of the proposed fix.</p>
+  <p id="detect">Script did not run.</p>
+  <p class="pass">The content string above is shown. On airkey.capitalone.com the same read returns <code>app-clip-bundle-id</code>.</p>
+  <p class="fail">Empty or "not found".</p>
+</section>
+
+<script>
+  var m = document.querySelector('meta[name="apple-itunes-app"]');
+  document.getElementById('detect').textContent = m ? m.content : 'not found';
+</script>
+
+</body>
+</html>
