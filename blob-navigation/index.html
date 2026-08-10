@@ -90,9 +90,6 @@
     generated blob can report back through <code>localStorage</code> and <code>BroadcastChannel</code>. A test that
     renders reports <code>RENDERED</code> by itself. A test that shows a blank page reports nothing and ends up as
     <code>NO REPORT</code> — that is the failure signal.
-    <br><br>
-    <strong>Related iOS fix:</strong>
-    <a href="https://github.com/duckduckgo/ddg-workflow/pull/58" target="_blank">ddg-workflow PR #58</a>
   </div>
 
   <div class="warn-box">
@@ -142,6 +139,13 @@
         loudly or silently.</li>
     </ul>
   </div>
+
+  <hr>
+
+  <figure>
+    <img src="blob-navigation.gif" alt="" style="height:148px; width:148px; max-width:100%;">
+    <figcaption>QR code for this page.</figcaption>
+  </figure>
 
   <script>
     const CHANNEL = 'blobnav';
