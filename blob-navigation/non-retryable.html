@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Blob Navigation — Non-retryable Tests (A3 / A6 / A7)</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 40rem;
+         margin: 0 auto; padding: 1rem; line-height: 1.5; }
+  section { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+  h2 { margin: 0 0 .25rem; font-size: 1.1rem; }
+  section p { margin: .25rem 0 .75rem; color: #555; }
+  button { background: #3969EF; color: #fff; border: 0; border-radius: 8px;
+           padding: .7rem 1.2rem; font-size: 1rem; }
+  .note { background: #e7f3ff; border-left: 4px solid #3969EF; padding: .75rem 1rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+  th, td { border: 1px solid #ddd; padding: .35rem .5rem; text-align: left; }
+</style>
+</head>
+<body>
+<p><a href="./index.html">See all blob-navigation tests</a></p>
+<h1>Blob Navigation — Non-retryable Tests (A3 / A6 / A7)</h1>
+
+<div class="note">
+  <strong>How to read this:</strong> every button should land you on a page that says <strong>PASS</strong>.
+  A blank page, a download prompt, or a tab that never loads is a <strong>FAIL</strong>.
+  Allow popups before running A6 and A7.
+</div>
+
+<section>
+  <h2>A3 — revoke immediately after navigating</h2>
+  <p>Navigates this tab to a blob URL, then revokes that URL synchronously.</p>
+  <button id="a3">Run A3</button>
+</section>
+
+<section>
+  <h2>A6 — window.open("") then assign location</h2>
+  <p>Opens a blank tab, then points it at a blob URL created by this page.</p>
+  <button id="a6">Run A6</button>
+</section>
+
+<section>
+  <h2>A7 — window.open with noopener</h2>
+  <p>Opens a blob URL in a new tab with no opener relationship.</p>
+  <button id="a7">Run A7</button>
+</section>
+
+<h2>Expected</h2>
+<table>
+  <tr><th></th><th>A3</th><th>A6</th><th>A7</th></tr>
+  <tr><td>Safari (iOS and macOS)</td><td>PASS</td><td>PASS</td><td>PASS</td></tr>
+  <tr><td>DuckDuckGo macOS</td><td>PASS</td><td>PASS</td><td>PASS</td></tr>
+  <tr><td>DuckDuckGo iOS, before the fix</td><td>FAIL</td><td>FAIL</td><td>FAIL</td></tr>
+</table>
+
+<script>
+  const BACK = location.href.split('#')[0];
+
+  // Deliberately inert: no script in the blob, so rendering is the only thing measured.
+  function page(id, isPopup) {
+    return '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+      '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+      '<title>PASS ' + id + '</title></head>' +
+      '<body style="font-family:-apple-system,sans-serif;text-align:center;padding:3rem 1rem">' +
+      '<p style="font-size:3rem;margin:0">&#10003;</p>' +
+      '<h1 style="color:#155724">PASS &mdash; ' + id + '</h1>' +
+      '<p>The blob document rendered.</p>' +
+      (isPopup
+        ? '<p>Close this tab and go back to the test page.</p>'
+        : '<p><a href="' + BACK + '">&larr; Back to tests</a></p>') +
+      '</body></html>';
+  }
+
+  function blobURL(id, isPopup) {
+    return URL.createObjectURL(new Blob([page(id, isPopup)], { type: 'text/html' }));
+  }
+
+  document.getElementById('a3').addEventListener('click', function () {
+    const url = blobURL('A3', false);
+    location.href = url;
+    URL.revokeObjectURL(url); // the whole point of A3
+  });
+
+  document.getElementById('a6').addEventListener('click', function () {
+    const w = window.open('');
+    if (!w) { alert('Popup blocked. Allow popups, then run A6 again.'); return; }
+    w.location.href = blobURL('A6', true);
+  });
+
+  document.getElementById('a7').addEventListener('click', function () {
+    // Returns null by design with noopener — that is not a failure.
+    window.open(blobURL('A7', true), '_blank', 'noopener');
+  });
+</script>
+</body>
+</html>
