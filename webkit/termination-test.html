@@ -1,0 +1,225 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>WebKit Termination Test</title>
+
+<style>
+  body { font: 16px system-ui; margin: 20px; }
+  button { display: block; margin: 8px 0; padding: 12px; width: 100%; }
+  pre { white-space: pre-wrap; background: #eee; padding: 12px; }
+  #items div { padding: 2px; }
+</style>
+
+<h1>WebKit Termination Test</h1>
+<p>
+  Each test gradually increases one resource. Stop before the device becomes
+  unresponsive. Add <code>?resume=1</code> to resume automatically after an
+  unexpected reload.
+</p>
+
+<button onclick="start('memory')">Start JS memory test</button>
+<button onclick="start('dom')">Start DOM test</button>
+<button onclick="start('webgl')">Start WebGL test</button>
+<button onclick="start('cpu')">Start CPU test</button>
+<button onclick="stop()">Stop</button>
+<button onclick="reset()">Reset history</button>
+
+<canvas id="canvas" width="64" height="64"></canvas>
+<pre id="status"></pre>
+<div id="items"></div>
+
+<script>
+const KEY = "webkit-termination-test";
+const params = new URLSearchParams(location.search);
+const prior = JSON.parse(localStorage.getItem(KEY) || "null");
+
+let state = prior || {};
+let timer;
+let allocations = [];
+let textures = [];
+let framebuffers = [];
+let gl;
+
+const status = document.querySelector("#status");
+const items = document.querySelector("#items");
+
+const suspectedTermination =
+    prior?.running === true && prior?.cleanShutdown === false;
+
+function save() {
+    localStorage.setItem(KEY, JSON.stringify(state));
+}
+
+function show(message = "") {
+    status.textContent = [
+        `UA: ${navigator.userAgent}`,
+        `Previous abnormal termination: ${suspectedTermination}`,
+        `Run: ${state.run || 0}`,
+        `Mode: ${state.mode || "none"}`,
+        `Steps: ${state.steps || 0}`,
+        `Estimated allocation: ${state.estimatedMiB || 0} MiB`,
+        message
+    ].join("\n");
+}
+
+function begin(mode) {
+    stop(false);
+
+    state = {
+        run: (prior?.run || 0) + 1,
+        mode,
+        steps: 0,
+        estimatedMiB: 0,
+        running: true,
+        cleanShutdown: false,
+        heartbeat: Date.now()
+    };
+
+    save();
+    show("Running");
+}
+
+function start(mode) {
+    begin(mode);
+
+    if (mode === "memory") {
+        timer = setInterval(memoryStep, 250);
+    } else if (mode === "dom") {
+        timer = setInterval(domStep, 250);
+    } else if (mode === "webgl") {
+        startWebGL();
+        timer = setInterval(webGLStep, 500);
+    } else if (mode === "cpu") {
+        timer = setInterval(cpuStep, 1000);
+    }
+}
+
+function memoryStep() {
+    // Allocate and touch 8 MiB so memory is physically committed.
+    const block = new Uint8Array(8 * 1024 * 1024);
+    for (let i = 0; i < block.length; i += 4096) block[i] = 1;
+    allocations.push(block);
+
+    state.steps++;
+    state.estimatedMiB = allocations.length * 8;
+    heartbeat();
+}
+
+function domStep() {
+    const fragment = document.createDocumentFragment();
+    const text = "x".repeat(1024);
+
+    for (let i = 0; i < 500; i++) {
+        const element = document.createElement("div");
+        element.textContent = `${state.steps}-${i}-${text}`;
+        fragment.appendChild(element);
+    }
+
+    items.appendChild(fragment);
+    state.steps++;
+    state.estimatedMiB = Math.round(state.steps * 0.5);
+    heartbeat();
+}
+
+function startWebGL() {
+    gl = document.querySelector("#canvas").getContext("webgl2");
+
+    if (!gl) {
+        stop();
+        show("WebGL2 unavailable");
+        return;
+    }
+
+    document.querySelector("#canvas").addEventListener(
+        "webglcontextlost",
+        event => {
+            event.preventDefault();
+            stop();
+            show("WebGL context lost without page termination");
+        }
+    );
+}
+
+function webGLStep() {
+    if (!gl) return;
+
+    const size = Math.min(2048, gl.getParameter(gl.MAX_TEXTURE_SIZE));
+    const texture = gl.createTexture();
+    const framebuffer = gl.createFramebuffer();
+
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texImage2D(
+        gl.TEXTURE_2D, 0, gl.RGBA,
+        size, size, 0,
+        gl.RGBA, gl.UNSIGNED_BYTE, null
+    );
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+    gl.framebufferTexture2D(
+        gl.FRAMEBUFFER,
+        gl.COLOR_ATTACHMENT0,
+        gl.TEXTURE_2D,
+        texture,
+        0
+    );
+
+    gl.clearColor(Math.random(), 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.finish();
+
+    textures.push(texture);
+    framebuffers.push(framebuffer);
+
+    state.steps++;
+    state.estimatedMiB = Math.round(
+        textures.length * size * size * 4 / 1048576
+    );
+    heartbeat();
+}
+
+function cpuStep() {
+    const end = performance.now() + 750;
+    let value = 0;
+
+    while (performance.now() < end) {
+        value += Math.sqrt(Math.random());
+    }
+
+    state.steps++;
+    heartbeat();
+}
+
+function heartbeat() {
+    state.heartbeat = Date.now();
+    save();
+    show("Running");
+}
+
+function stop(markClean = true) {
+    clearInterval(timer);
+
+    if (markClean && state.running) {
+        state.running = false;
+        state.cleanShutdown = true;
+        save();
+        show("Stopped cleanly");
+    }
+}
+
+function reset() {
+    localStorage.removeItem(KEY);
+    location.replace(location.pathname);
+}
+
+addEventListener("beforeunload", () => {
+    state.cleanShutdown = true;
+    save();
+});
+
+show(suspectedTermination
+    ? "Previous run ended without beforeunload"
+    : "Ready");
+
+if (suspectedTermination && params.get("resume") === "1") {
+    setTimeout(() => start(prior.mode), 1500);
+}
+</script>
