@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>WebKit Compositor Test</title>
+
+<style>
+  html, body { margin: 0; overflow: hidden; background: #111; }
+  #surfaces { position: fixed; inset: 0; }
+  .surface {
+    position: fixed;
+    left: -10vw;
+    top: -10vh;
+    width: 120vw;
+    height: 120vh;
+    opacity: .12;
+    pointer-events: none;
+  }
+  .composited {
+    will-change: transform, opacity;
+    transform: translate3d(0, 0, 0);
+  }
+  .animated {
+    animation: move 1.2s ease-in-out infinite alternate;
+  }
+  @keyframes move {
+    from { transform: translate3d(-2%, -2%, 0) scale(1.01); opacity: .08; }
+    to   { transform: translate3d(2%, 2%, 0) scale(1.06); opacity: .18; }
+  }
+  #panel {
+    position: fixed;
+    z-index: 10000;
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    padding: 10px;
+    background: #ffffffe8;
+    color: #111;
+    font: 12px monospace;
+  }
+  button { margin: 3px; padding: 7px; }
+  pre { white-space: pre-wrap; margin: 6px 0 0; }
+</style>
+
+</head>
+<body>
+
+<div id="surfaces"></div>
+
+<div id="panel">
+  <button onclick="start('static')">Static layers</button>
+  <button onclick="start('animated')">Animated layers</button>
+  <button onclick="start('canvas')">Canvas layers</button>
+  <button onclick="start('churn')">Canvas frame churn</button>
+  <button onclick="stop()">Stop</button>
+  <button onclick="clearHistory()">Clear history</button>
+  <pre id="status"></pre>
+</div>
+
+
+<hr>
+
+<figure>
+  <img src="compositor-test.gif" alt="" style="height:148px; width:148px; max-width:100%;">
+  <figcaption>QR code for this page.</figcaption>
+</figure>
+
+
+
+<script>
+const KEY = "webkit-compositor-test";
+const query = new URLSearchParams(location.search);
+const previous = JSON.parse(localStorage.getItem(KEY) || "null");
+const abnormalPreviousExit =
+  previous?.running === true && previous?.clean === false;
+
+let state = previous || {};
+let timer = 0;
+let frameRequest = 0;
+let canvases = [];
+
+const surfaces = document.querySelector("#surfaces");
+const status = document.querySelector("#status");
+
+const scale = Math.max(0.25, Number(query.get("scale") || 1));
+const requestedLayers = Math.max(1, Number(query.get("layers") || 0));
+const pixelRatio = devicePixelRatio * scale;
+
+const pixelWidth = Math.ceil(innerWidth * 1.2 * pixelRatio);
+const pixelHeight = Math.ceil(innerHeight * 1.2 * pixelRatio);
+const surfaceMiB = pixelWidth * pixelHeight * 4 / 1048576;
+
+function save() {
+  localStorage.setItem(KEY, JSON.stringify(state));
+}
+
+function show(extra = "") {
+  status.textContent = [
+    `Previous abnormal exit: ${abnormalPreviousExit}`,
+    `Run: ${state.run || 0}`,
+    `Mode: ${state.mode || "idle"}`,
+    `Layers: ${state.layers || 0}`,
+    `Frames: ${state.frames || 0}`,
+    `CSS viewport: ${innerWidth} × ${innerHeight}`,
+    `Device pixel ratio: ${devicePixelRatio}`,
+    `Backing pixels: ${pixelWidth} × ${pixelHeight}`,
+    `Approx. RGBA per surface: ${surfaceMiB.toFixed(1)} MiB`,
+    `Approx. current surfaces: ${
+      ((state.layers || 0) * surfaceMiB).toFixed(1)
+    } MiB`,
+    extra
+  ].join("\n");
+}
+
+function begin(mode) {
+  stop(false);
+  surfaces.replaceChildren();
+  canvases = [];
+
+  state = {
+    run: (state.run || 0) + 1,
+    mode,
+    layers: 0,
+    frames: 0,
+    running: true,
+    clean: false,
+    heartbeat: Date.now()
+  };
+
+  save();
+  show("Running");
+}
+
+function start(mode) {
+  begin(mode);
+
+  if (mode === "churn") {
+    const count = requestedLayers || 1;
+
+    for (let i = 0; i < count; i++) {
+      addCanvas(true);
+    }
+
+    churn();
+    return;
+  }
+
+  const maximum =
+    requestedLayers || (mode === "canvas" ? 100 : 180);
+
+  timer = setInterval(() => {
+    if (state.layers >= maximum) {
+      stop();
+      return;
+    }
+
+    if (mode === "canvas") {
+      addCanvas(false);
+    } else {
+      addDiv(mode === "animated");
+    }
+
+    heartbeat();
+  }, mode === "canvas" ? 500 : 250);
+}
+
+function addDiv(animated) {
+  const element = document.createElement("div");
+  const hue = (state.layers * 47) % 360;
+
+  element.className =
+    "surface " + (animated ? "composited animated" : "");
+
+  element.style.background = `
+    radial-gradient(circle at 30% 30%,
+      hsl(${hue} 90% 60%),
+      transparent 55%),
+    linear-gradient(45deg,
+      hsl(${hue} 80% 40%),
+      hsl(${(hue + 120) % 360} 80% 40%))
+  `;
+
+  element.style.animationDelay = `${state.layers * -37}ms`;
+  surfaces.appendChild(element);
+  state.layers++;
+}
+
+function addCanvas(changing) {
+  const canvas = document.createElement("canvas");
+  canvas.width = pixelWidth;
+  canvas.height = pixelHeight;
+  canvas.className = "surface composited animated";
+  canvas.style.animationDelay = `${state.layers * -41}ms`;
+
+  canvas.dataset.changing = changing ? "true" : "false";
+  surfaces.appendChild(canvas);
+  canvases.push(canvas);
+
+  draw(canvas, state.layers);
+  state.layers++;
+}
+
+function draw(canvas, frame) {
+  const context = canvas.getContext("2d");
+  const hue = (frame * 13) % 360;
+
+  context.fillStyle = `hsl(${hue} 70% 45%)`;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+
+  for (let y = 0; y < canvas.height; y += 64) {
+    context.fillStyle =
+      `hsla(${(hue + y) % 360} 90% 70% / .45)`;
+    context.fillRect(0, y, canvas.width, 32);
+  }
+}
+
+function churn() {
+  if (!state.running) return;
+
+  state.frames++;
+
+  for (let i = 0; i < canvases.length; i++) {
+    draw(canvases[i], state.frames + i * 17);
+  }
+
+  if (state.frames % 30 === 0) heartbeat();
+  frameRequest = requestAnimationFrame(churn);
+}
+
+function heartbeat() {
+  state.heartbeat = Date.now();
+  save();
+  show("Running");
+}
+
+function stop(markClean = true) {
+  clearInterval(timer);
+  cancelAnimationFrame(frameRequest);
+
+  if (markClean && state.running) {
+    state.running = false;
+    state.clean = true;
+    save();
+    show("Stopped cleanly");
+  }
+}
+
+function clearHistory() {
+  stop();
+  localStorage.removeItem(KEY);
+  state = {};
+  show("History cleared");
+}
+
+addEventListener("beforeunload", () => {
+  state.clean = true;
+  save();
+});
+
+show("Ready");
+
+if (query.get("resume") === "1" && query.get("mode")) {
+  setTimeout(() => start(query.get("mode")), 750);
+}
+</script>
+
+</body>
+</html>
