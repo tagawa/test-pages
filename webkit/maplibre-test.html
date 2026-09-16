@@ -1,0 +1,182 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>MapLibre WebKit Repro</title>
+
+<link
+  rel="stylesheet"
+  href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.11.0/dist/maplibre-gl.css"
+>
+
+<style>
+  html, body, #map { width: 100%; height: 100%; margin: 0; }
+  #status {
+    position: fixed;
+    z-index: 10;
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    padding: 8px;
+    background: #fffc;
+    font: 12px monospace;
+    white-space: pre-wrap;
+  }
+</style>
+
+<div id="status">Starting…</div>
+<div id="map"></div>
+
+<hr>
+
+<figure>
+  <img src="maplibre-test.gif" alt="" style="height:148px; width:148px; max-width:100%;">
+  <figcaption>QR code for this page.</figcaption>
+</figure>
+
+
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.11.0/dist/maplibre-gl.js"></script>
+
+<script>
+const KEY = "maplibre-webkit-repro";
+const query = new URLSearchParams(location.search);
+const pointCount = Number(query.get("points") || 16854);
+const animate = query.get("animate") !== "0";
+
+const previous = JSON.parse(localStorage.getItem(KEY) || "null");
+const abnormalPreviousExit =
+  previous?.running === true && previous?.clean === false;
+
+const state = {
+  run: (previous?.run || 0) + 1,
+  running: true,
+  clean: false,
+  started: Date.now(),
+  heartbeat: Date.now()
+};
+
+function save() {
+  localStorage.setItem(KEY, JSON.stringify(state));
+}
+
+function report(extra = "") {
+  document.querySelector("#status").textContent = [
+    `Run: ${state.run}`,
+    `Previous abnormal exit: ${abnormalPreviousExit}`,
+    `Points: ${pointCount}`,
+    `Animation: ${animate}`,
+    `WebGL2: ${!!document.createElement("canvas").getContext("webgl2")}`,
+    `Worker: ${typeof Worker}`,
+    `OffscreenCanvas: ${typeof OffscreenCanvas}`,
+    `UA: ${navigator.userAgent}`,
+    extra
+  ].join("\n");
+}
+
+save();
+report();
+
+addEventListener("beforeunload", () => {
+  state.clean = true;
+  save();
+});
+
+setInterval(() => {
+  state.heartbeat = Date.now();
+  save();
+}, 500);
+
+const features = [];
+
+for (let i = 0; i < pointCount; i++) {
+  features.push({
+    type: "Feature",
+    geometry: {
+      type: "Point",
+      coordinates: [
+        ((i * 137.508) % 360) - 180,
+        ((i * 47.123) % 140) - 70
+      ]
+    },
+    properties: { id: i }
+  });
+}
+
+const data = {
+  type: "FeatureCollection",
+  features
+};
+
+const map = new maplibregl.Map({
+  container: "map",
+  style: "https://tiles.openfreemap.org/styles/liberty",
+  center: [0, 20],
+  zoom: 2,
+  attributionControl: false
+});
+
+map.on("error", event => {
+  report(`Map error: ${event.error?.message || event.error}`);
+});
+
+map.on("webglcontextlost", () => {
+  report("WebGL context lost");
+});
+
+map.on("load", () => {
+  map.addSource("locations", {
+    type: "geojson",
+    data,
+    cluster: true,
+    clusterRadius: 35
+  });
+
+  map.addLayer({
+    id: "clusters",
+    type: "circle",
+    source: "locations",
+    filter: ["has", "point_count"],
+    paint: {
+      "circle-radius": 18,
+      "circle-color": "#cc2222"
+    }
+  });
+
+  map.addLayer({
+    id: "locations",
+    type: "circle",
+    source: "locations",
+    filter: ["!", ["has", "point_count"]],
+    paint: {
+      "circle-radius": 5,
+      "circle-color": "#2222cc"
+    }
+  });
+
+  report("Map loaded");
+
+  if (animate) {
+    let step = 0;
+
+    setInterval(() => {
+      step++;
+
+      map.easeTo({
+        center: [
+          ((step * 79) % 360) - 180,
+          ((step * 31) % 120) - 60
+        ],
+        zoom: 7 + (step % 6),
+        duration: 700
+      });
+
+      // Force repeated GeoJSON serialization and worker processing.
+      for (let i = 0; i < Math.min(250, features.length); i++) {
+        const point = features[(step * 250 + i) % features.length];
+        point.geometry.coordinates[0] += 0.0001;
+      }
+
+      map.getSource("locations").setData(data);
+      report(`Map loaded\nAnimation step: ${step}`);
+    }, 900);
+  }
+});
+</script>
