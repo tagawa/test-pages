@@ -1,6 +1,6 @@
 <!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>WebKit Iframe Test</title>
+<title>WebKit iFrame Test</title>
 
 <script>
 // Frames created in "url" mode load this page with ?child=1. Stop parsing so they stay empty.
@@ -14,21 +14,20 @@ if (new URLSearchParams(location.search).get("child") === "1") window.stop();
   #frames iframe { width: 1px; height: 1px; border: 0; }
 </style>
 
-<h1>WebKit Iframe Test</h1>
+<h1>WebKit iFrame Test</h1>
 <p>
-  Each test creates many iframes in a short burst, as some ad, video and
-  carousel scripts do. Add <code>?count=</code> to change the number of
-  frames (default 400) and <code>?interval=</code> to change the delay
-  between frames in ms (default 20). Add <code>?resume=1&amp;mode=blank</code>
-  to start automatically on every load, including after an unexpected reload.
+  On every load, this page creates 400 about:blank iframes in a short burst,
+  as some ad, video and carousel scripts do. Tap Start to run it again.
+</p>
+<p>
+  Optional URL parameters: <code>count</code> (default 400),
+  <code>interval</code> in ms (default 20), <code>mode</code>
+  (<code>blank</code>, <code>srcdoc</code>, <code>url</code>, or
+  <code>churn</code> to remove each frame after 0.5 s; default
+  <code>blank</code>) and <code>resume=0</code> to wait for Start.
 </p>
 
-<button onclick="start('blank')">Start about:blank frames</button>
-<button onclick="start('churn')">Start about:blank frames, each removed after 0.5 s</button>
-<button onclick="start('srcdoc')">Start srcdoc frames</button>
-<button onclick="start('url')">Start same-origin URL frames</button>
-<button onclick="stop()">Stop</button>
-<button onclick="reset()">Reset history</button>
+<button onclick="start()">Start</button>
 
 <pre id="status"></pre>
 <div id="frames"></div>
@@ -47,8 +46,9 @@ const prior = JSON.parse(localStorage.getItem(KEY) || "null");
 
 const count = Math.max(1, Number(params.get("count")) || 400);
 const interval = Math.max(0, Number(params.get("interval") ?? 20));
+const mode = params.get("mode") || "blank";
 
-let state = prior || {};
+let state = { run: prior?.run || 0 };
 let timer;
 let alive = 0;
 
@@ -67,10 +67,10 @@ function show(message = "") {
         `UA: ${navigator.userAgent}`,
         `Previous abnormal termination: ${suspectedTermination}`,
         suspectedTermination
-            ? `Previous run stopped at: ${prior.created || 0} frames (${prior.mode})`
+            ? `Previous run stopped at: ${prior.created || 0} frames`
             : "",
         `Run: ${state.run || 0}`,
-        `Mode: ${state.mode || "none"}`,
+        `Mode: ${mode}`,
         `Frames created: ${state.created || 0} / ${count}`,
         `Frames alive: ${alive}`,
         `Elapsed: ${state.started ? ((Date.now() - state.started) / 1000).toFixed(1) : 0} s`,
@@ -78,7 +78,7 @@ function show(message = "") {
     ].filter(Boolean).join("\n");
 }
 
-function makeFrame(mode) {
+function makeFrame() {
     const frame = document.createElement("iframe");
 
     if (mode === "srcdoc") {
@@ -92,14 +92,13 @@ function makeFrame(mode) {
     return frame;
 }
 
-function start(mode) {
-    stop(false);
+function start() {
+    clearInterval(timer);
     frames.replaceChildren();
     alive = 0;
 
     state = {
         run: (state.run || 0) + 1,
-        mode,
         created: 0,
         started: Date.now(),
         running: true,
@@ -108,11 +107,11 @@ function start(mode) {
 
     save();
     show("Running");
-    timer = setInterval(() => step(mode), interval);
+    timer = setInterval(step, interval);
 }
 
-function step(mode) {
-    const frame = makeFrame(mode);
+function step() {
+    const frame = makeFrame();
     frames.appendChild(frame);
     alive++;
 
@@ -129,28 +128,12 @@ function step(mode) {
     save();
 
     if (state.created >= count) {
-        // Frames stay in the page, so the run counts as running until Stop or unload.
+        // Frames stay in the page, so the run counts as running until unload.
         clearInterval(timer);
         show("Done");
     } else {
         show("Running");
     }
-}
-
-function stop(markClean = true) {
-    clearInterval(timer);
-
-    if (markClean && state.running) {
-        state.running = false;
-        state.cleanShutdown = true;
-        save();
-        show("Stopped cleanly");
-    }
-}
-
-function reset() {
-    localStorage.removeItem(KEY);
-    location.replace(location.pathname);
 }
 
 function markCleanShutdown() {
@@ -166,7 +149,7 @@ show(suspectedTermination
     ? "Previous run ended without beforeunload or pagehide"
     : "Ready");
 
-if (params.get("resume") === "1" && params.get("mode")) {
-    setTimeout(() => start(params.get("mode")), 750);
+if (params.get("resume") !== "0") {
+    setTimeout(start, 750);
 }
 </script>
