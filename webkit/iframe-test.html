@@ -2,11 +2,6 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>WebKit iFrame Test</title>
 
-<script>
-// Frames created in "url" mode load this page with ?child=1. Stop parsing so they stay empty.
-if (new URLSearchParams(location.search).get("child") === "1") window.stop();
-</script>
-
 <style>
   body { font: 16px system-ui; margin: 20px; }
   pre { white-space: pre-wrap; background: #eee; padding: 12px; }
@@ -15,13 +10,9 @@ if (new URLSearchParams(location.search).get("child") === "1") window.stop();
 
 <h1>WebKit iFrame Test</h1>
 <p>
-  Creates many iframes in a short burst, as some ad, video and carousel
-  scripts do. Load this page with <code>?resume=1&amp;mode=blank</code> to
-  start. It starts again on every load, including after an unexpected reload.
-  Other modes: <code>churn</code> (each frame removed after 0.5 s),
-  <code>srcdoc</code> and <code>url</code>. Add <code>&amp;count=</code> to
-  change the number of frames (default 400) and <code>&amp;interval=</code>
-  to change the delay between frames in ms (default 20).
+  On every load, this page creates 400 about:blank iframes in a short burst,
+  as some ad, video and carousel scripts do. It starts again after an
+  unexpected reload.
 </p>
 
 <pre id="status"></pre>
@@ -36,11 +27,10 @@ if (new URLSearchParams(location.search).get("child") === "1") window.stop();
 
 <script>
 const KEY = "webkit-iframe-test";
-const params = new URLSearchParams(location.search);
 const prior = JSON.parse(localStorage.getItem(KEY) || "null");
 
-const count = Math.max(1, Number(params.get("count")) || 400);
-const interval = Math.max(0, Number(params.get("interval") ?? 20));
+const count = 400;
+const interval = 20;
 
 let state = prior || {};
 let timer;
@@ -61,10 +51,9 @@ function show(message = "") {
         `UA: ${navigator.userAgent}`,
         `Previous abnormal termination: ${suspectedTermination}`,
         suspectedTermination
-            ? `Previous run stopped at: ${prior.created || 0} frames (${prior.mode})`
+            ? `Previous run stopped at: ${prior.created || 0} frames`
             : "",
         `Run: ${state.run || 0}`,
-        `Mode: ${state.mode || "none"}`,
         `Frames created: ${state.created || 0} / ${count}`,
         `Frames alive: ${alive}`,
         `Elapsed: ${state.started ? ((Date.now() - state.started) / 1000).toFixed(1) : 0} s`,
@@ -72,28 +61,9 @@ function show(message = "") {
     ].filter(Boolean).join("\n");
 }
 
-function makeFrame(mode) {
-    const frame = document.createElement("iframe");
-
-    if (mode === "srcdoc") {
-        frame.srcdoc = "<p>x</p>";
-    } else if (mode === "url") {
-        frame.src = `${location.pathname}?child=1`;
-    } else {
-        frame.src = "about:blank";
-    }
-
-    return frame;
-}
-
-function start(mode) {
-    stop(false);
-    frames.replaceChildren();
-    alive = 0;
-
+function start() {
     state = {
         run: (state.run || 0) + 1,
-        mode,
         created: 0,
         started: Date.now(),
         running: true,
@@ -102,49 +72,25 @@ function start(mode) {
 
     save();
     show("Running");
-    timer = setInterval(() => step(mode), interval);
+    timer = setInterval(step, interval);
 }
 
-function step(mode) {
-    const frame = makeFrame(mode);
+function step() {
+    const frame = document.createElement("iframe");
+    frame.src = "about:blank";
     frames.appendChild(frame);
     alive++;
-
-    if (mode === "churn") {
-        setTimeout(() => {
-            if (!frame.isConnected) return;
-            frame.remove();
-            alive--;
-            show(state.created >= count ? "Done" : "Running");
-        }, 500);
-    }
 
     state.created++;
     save();
 
     if (state.created >= count) {
-        // Frames stay in the page, so the run counts as running until Stop or unload.
+        // Frames stay in the page, so the run counts as running until unload.
         clearInterval(timer);
         show("Done");
     } else {
         show("Running");
     }
-}
-
-function stop(markClean = true) {
-    clearInterval(timer);
-
-    if (markClean && state.running) {
-        state.running = false;
-        state.cleanShutdown = true;
-        save();
-        show("Stopped cleanly");
-    }
-}
-
-function reset() {
-    localStorage.removeItem(KEY);
-    location.replace(location.pathname);
 }
 
 function markCleanShutdown() {
@@ -160,7 +106,5 @@ show(suspectedTermination
     ? "Previous run ended without beforeunload or pagehide"
     : "Ready");
 
-if (params.get("resume") === "1" && params.get("mode")) {
-    setTimeout(() => start(params.get("mode")), 750);
-}
+setTimeout(start, 750);
 </script>
